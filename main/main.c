@@ -25,7 +25,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
-#include "nvs_flash.h"
+#include "wendy_core.h"
 
 #include "stm32_legacy.h"
 #include "platform.h"
@@ -40,15 +40,9 @@ void app_main()
     * app_main will initialize and start everything
     */
 
-    /* initialize nvs flash prepare for Wi-Fi */
-    esp_err_t ret = nvs_flash_init();
-
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-
-    ESP_ERROR_CHECK(ret);
+    /* wendy_core owns NVS and Wi-Fi (station mode, credentials, mDNS).
+     * Must run before systemLaunch() so the IP stack is up for the UDP link. */
+    ESP_ERROR_CHECK(wendy_core_init());
 
     /*Initialize the platform.*/
     if (platformInit() == false) {

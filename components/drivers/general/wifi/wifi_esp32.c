@@ -5,9 +5,6 @@
 #include "freertos/task.h"
 
 #include "esp_system.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_netif.h"
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
@@ -19,27 +16,10 @@
 #define DEBUG_MODULE  "WIFI_UDP"
 #include "debug_cf.h"
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 4, 0)
-#include "esp_mac.h"
-#endif
-#include "espnow.h"
-#include "espnow_ctrl.h"
-#include "espnow_utils.h"
-
 #define UDP_SERVER_PORT         2390
 #define UDP_SERVER_BUFSIZE      64
 
 static struct sockaddr_storage source_addr;
-
-static char WIFI_SSID[32] = "";
-static char WIFI_PWD[64] = CONFIG_WIFI_PASSWORD;
-static uint8_t WIFI_CH = CONFIG_WIFI_CHANNEL;
-#define WIFI_MAX_STA_CONN CONFIG_WIFI_MAX_STA_CONN
-
-#ifndef MAC2STR
-#define MAC2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
-#define MACSTR "%02x:%02x:%02x:%02x:%02x:%02x"
-#endif
 
 static int sock;
 static xQueueHandle udpDataRx;
@@ -62,19 +42,6 @@ static uint8_t calculate_cksum(void *data, size_t len)
     }
 
     return cksum;
-}
-
-static void wifi_event_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
-{
-    if (event_id == WIFI_EVENT_AP_STACONNECTED) {
-        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *) event_data;
-        DEBUG_PRINT_LOCAL("station" MACSTR "join, AID=%d", MAC2STR(event->mac), event->aid);
-
-    } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *) event_data;
-        DEBUG_PRINT_LOCAL("station" MACSTR "leave, AID=%d", MAC2STR(event->mac), event->aid);
-    }
 }
 
 bool wifiTest(void)
@@ -202,53 +169,6 @@ static void udp_server_tx_task(void *pvParameters)
     }
 }
 
-static void espnow_ctrl_data_cb(espnow_attribute_t initiator_attribute,
-                                       espnow_attribute_t responder_attribute,
-                                       uint32_t status1,
-                                       int status2,
-                                       int lx_value,
-                                       int ly_value,
-                                       int rx_value,
-                                       int ry_value,
-                                       int channel_one_value,
-                                       int channel_two_value)
-{
-    UDPPacket inPacket;
-    inPacket.size = 7;
-    inPacket.data[0] = 'n';
-    inPacket.data[1] = 'o';
-    inPacket.data[2] = 'w';
-    inPacket.data[3] = lx_value & 0xFF;
-    inPacket.data[4] = ly_value & 0xFF;
-    inPacket.data[5] = ry_value & 0xFF;
-    inPacket.data[6] = rx_value & 0xFF;
-    xQueueSend(udpDataRx, &inPacket, 0);
-}
-
-static void app_espnow_event_handler(void *handler_args, esp_event_base_t base, int32_t id, void *event_data)
-{
-    if (base != ESP_EVENT_ESPNOW) {
-        return;
-    }
-
-    switch (id) {
-    case ESP_EVENT_ESPNOW_CTRL_BIND: {
-        espnow_ctrl_bind_info_t *info = (espnow_ctrl_bind_info_t *)event_data;
-        DEBUG_PRINT_LOCAL("bind, uuid: " MACSTR ", initiator_type: %d", MAC2STR(info->mac), info->initiator_attribute);
-        break;
-    }
-
-    case ESP_EVENT_ESPNOW_CTRL_UNBIND: {
-        espnow_ctrl_bind_info_t *info = (espnow_ctrl_bind_info_t *)event_data;
-        DEBUG_PRINT_LOCAL("unbind, uuid: " MACSTR ", initiator_type: %d", MAC2STR(info->mac), info->initiator_attribute);
-        break;
-    }
-
-    default:
-        break;
-    }
-}
-
 void wifiInit(void)
 {
     if (isInit) {
@@ -259,60 +179,6 @@ void wifiInit(void)
     DEBUG_QUEUE_MONITOR_REGISTER(udpDataRx);
     udpDataTx = xQueueCreate(16, sizeof(UDPPacket));
     DEBUG_QUEUE_MONITOR_REGISTER(udpDataTx);
-
-    espnow_storage_init();
-    esp_netif_t *ap_netif = NULL;
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    ap_netif = esp_netif_create_default_wifi_ap();
-    uint8_t mac[6];
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                    ESP_EVENT_ANY_ID,
-                    &wifi_event_handler,
-                    NULL,
-                    NULL));
-
-    ESP_ERROR_CHECK(esp_wifi_get_mac(ESP_IF_WIFI_AP, mac));
-    sprintf(WIFI_SSID, "%s_%02X%02X%02X%02X%02X%02X", CONFIG_WIFI_BASE_SSID, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-    wifi_config_t wifi_config = {
-        .ap = {
-            .channel = WIFI_CH,
-            .max_connection = WIFI_MAX_STA_CONN,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK,
-        },
-    };
-
-    memcpy(wifi_config.ap.ssid, WIFI_SSID, strlen(WIFI_SSID) + 1) ;
-    wifi_config.ap.ssid_len = strlen(WIFI_SSID);
-    memcpy(wifi_config.ap.password, WIFI_PWD, strlen(WIFI_PWD) + 1) ;
-
-    if (strlen(WIFI_PWD) == 0) {
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-    }
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    esp_wifi_set_channel(WIFI_CH, WIFI_SECOND_CHAN_NONE);
-    espnow_config_t espnow_config = ESPNOW_INIT_CONFIG_DEFAULT();
-    espnow_init(&espnow_config);
-    esp_event_handler_register(ESP_EVENT_ESPNOW, ESP_EVENT_ANY_ID, app_espnow_event_handler, NULL);
-    ESP_ERROR_CHECK(espnow_ctrl_responder_bind(30 * 1000, -55, NULL));
-    espnow_ctrl_responder_data(espnow_ctrl_data_cb);
-    esp_netif_ip_info_t ip_info = {
-        .ip.addr = ipaddr_addr("192.168.43.42"),
-        .netmask.addr = ipaddr_addr("255.255.255.0"),
-        .gw.addr      = ipaddr_addr("192.168.43.42"),
-    };
-    ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
-    ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ip_info));
-    ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
-    DEBUG_PRINT_LOCAL("wifi_init_softap complete.SSID:%s password:%s", WIFI_SSID, WIFI_PWD);
 
     if (udp_server_create(NULL) == ESP_FAIL) {
         DEBUG_PRINT_LOCAL("UDP server create socket failed");

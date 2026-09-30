@@ -23,3 +23,52 @@ CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
+# Per-drone IMU calibration (deg*100)
+CONFIG_PITCH_CALIB=-50
+CONFIG_ROLL_CALIB=145
+
+# ---------------------------------------------------------------------------
+# wendy_core integration (Wi-Fi station, BLE provisioning, OTA)
+# ---------------------------------------------------------------------------
+
+# Flash size: 8 MB (ESP32-S3-WROOM-1-N8)
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# wendy-lite 8 MB OTA layout: two OTA app slots plus the wendy_conf partition
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.ota.8mb.csv"
+
+# Move WiFi/PHY hot paths from IRAM to flash (frees ~15-25 KB DIRAM)
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_EXTRA_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_ESP_WIFI_SLP_IRAM_OPT=n
+CONFIG_ESP_PHY_IRAM_OPT=n
+
+# BLE stack (NimBLE) - runs on the host MCU regardless of whether the
+# controller is native (C6) or remote-over-VHCI via esp_hosted (P4).
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=2
+
+# Tune NimBLE buffer pools (sized for max 2 connections). These apply
+# regardless of whether the controller is native or remote.
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=12
+CONFIG_BT_NIMBLE_MSYS_2_BLOCK_COUNT=12
+CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=8
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_COUNT=12
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_DISCARD_COUNT=4
+
+# mbedTLS memory — dynamic buffers avoid a large upfront allocation at ssl_setup
+# time.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192
+
+# Console over UART (the LiteWing USB-C port goes through a CH340 to UART0)
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# Disable ROM secondary console so the wendy_core/wendy_usj buffered driver owns
+# the USB Serial/JTAG peripheral exclusively.
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y

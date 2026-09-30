@@ -14,9 +14,10 @@ typedef struct
 } UDPPacket;
 
 /**
- * Initialize the wifi.
+ * Start the CRTP-over-UDP server (port 2390).
  *
- * @note Initialize CRTP link only if USE_CRTP_WIFI is defined
+ * @note Wi-Fi itself (station mode, credentials) is brought up by
+ *       wendy_core_init(), which must run first.
  */
 void wifiInit(void);
 
