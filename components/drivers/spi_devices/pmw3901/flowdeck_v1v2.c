@@ -94,10 +94,14 @@ static void flowdeckTask(void *param)
 
         pmw3901ReadMotion(NCS_PIN, &currentMotion);
 
-        // Flip motion information to comply with sensor mounting
-        // (might need to be changed if mounted differently)
-        int16_t accpx = -currentMotion.deltaY;
-        int16_t accpy = -currentMotion.deltaX;
+        // Flip motion information to comply with sensor mounting.
+        // The LiteWing positioning module carries the sensor rotated 180°
+        // from the Bitcraze Flow deck this code comes from, hence no minus
+        // signs: with Bitcraze's -deltaY/-deltaX the X/Y estimate pointed
+        // backward (+x toward the tail, the IMU's +x being the USB side) and
+        // position control diverged.
+        int16_t accpx = currentMotion.deltaY;
+        int16_t accpy = currentMotion.deltaX;
 
         // Outlier removal
         if (abs(accpx) < OULIER_LIMIT && abs(accpy) < OULIER_LIMIT) {
