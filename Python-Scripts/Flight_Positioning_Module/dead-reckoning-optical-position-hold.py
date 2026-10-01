@@ -28,6 +28,7 @@ Author: Dharageswaran S
 Version: 1.0
 """
 
+import sys
 import time
 import threading
 import cflib.crtp
@@ -42,8 +43,18 @@ import matplotlib.animation as animation
 import csv
 from datetime import datetime
 
+
+def button_fg(bg: str) -> str:
+    """Text colour for a coloured button that normally has white text.
+
+    macOS native buttons ignore bg, so white text would be invisible on the
+    light button; there the button colour is used for the text instead.
+    """
+    return bg if sys.platform == "darwin" else "white"
+
+
 # === CONFIGURATION PARAMETERS ===
-DRONE_URI = "udp://192.168.43.42"
+DRONE_URI = "udp://192.168.1.134:2390"
 TARGET_HEIGHT = 0.3  # Target hover height in meters
 TAKEOFF_TIME = 0.5  # Time to takeoff and stabilize
 HOVER_DURATION = 60.0  # How long to hover with position hold (seconds)
@@ -556,7 +567,7 @@ class PositionHoldGUI:
         self.start_button = tk.Button(
             control_frame, text="Start Position Hold",
             command=self.start_flight,
-            bg="green", fg="white", font=("Arial", 11, "bold"), width=16
+            bg="green", fg=button_fg("green"), font=("Arial", 11, "bold"), width=16
         )
         self.start_button.pack(side=tk.LEFT, padx=5)
 
@@ -673,7 +684,7 @@ class PositionHoldGUI:
         # Apply button (full width below columns)
         tk.Button(
             pid_frame, text="Apply All Values", command=self.apply_values,
-            bg="green", fg="white", font=("Arial", 10)
+            bg="green", fg=button_fg("green"), font=("Arial", 10)
         ).pack(pady=5)
 
         # === Real-time values display ===
@@ -1008,7 +1019,7 @@ class PositionHoldGUI:
 
         # Start flight
         self.flight_running = True
-        self.start_button.config(text="Stop Flight", command=self.emergency_stop, bg="red")
+        self.start_button.config(text="Stop Flight", command=self.emergency_stop, bg="red", fg=button_fg("red"))
         self.status_var.set("Status: Starting Position Hold Flight...")
         self.log_to_output("Position Hold flight started")
 
@@ -1024,7 +1035,7 @@ class PositionHoldGUI:
         self.flight_running = False
         self.sensor_test_running = False
 
-        self.start_button.config(text="Start Position Hold", command=self.start_flight, bg="green")
+        self.start_button.config(text="Start Position Hold", command=self.start_flight, bg="green", fg=button_fg("green"))
         self.sensor_test_button.config(text="Sensor Test (ARM)", command=self.start_sensor_test, bg="lightblue")
         self.status_var.set("Status: EMERGENCY STOPPED")
         self.log_to_output("EMERGENCY STOP!")
@@ -1147,7 +1158,7 @@ class PositionHoldGUI:
             flight_active = False
             self.flight_running = False
             self.root.after(0, lambda: self.start_button.config(
-                text="Start Position Hold", command=self.start_flight, bg="green"
+                text="Start Position Hold", command=self.start_flight, bg="green", fg=button_fg("green")
             ))
             self.root.after(0, lambda: self.status_var.set("Status: Flight Complete"))
 
@@ -1167,6 +1178,12 @@ def main():
         print(f"Warning: cflib.crtp.init_drivers() failed: {e}")
 
     root = tk.Tk()
+    # Force light (Aqua) appearance on macOS even when the OS is in dark mode
+    try:
+        root.update_idletasks()  # window must exist before its appearance can be set
+        root.tk.call("::tk::unsupported::MacWindowStyle", "appearance", root, "aqua")
+    except tk.TclError:
+        pass  # Not macOS / older Tk
     app = PositionHoldGUI(root)
 
     def on_closing():

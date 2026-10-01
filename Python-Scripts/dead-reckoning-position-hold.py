@@ -1,3 +1,4 @@
+import sys
 import time
 import threading
 import cflib.crtp
@@ -11,7 +12,7 @@ import matplotlib.animation as animation
 import numpy as np
 
 # === CONFIGURATION PARAMETERS ===
-DRONE_URI = "udp://192.168.43.42"
+DRONE_URI = "udp://192.168.1.134:2390"
 TARGET_HEIGHT = 0.2  # Target hover height in meters
 TAKEOFF_TIME = 1.0  # Time to takeoff and stabilize
 HOVER_DURATION = 30.0  # How long to hover with position hold
@@ -24,8 +25,8 @@ DEBUG_MODE = False
 VELOCITY_SMOOTHING_ALPHA = 0.8  # Default: 0.7 (previously hardcoded)
 
 # Basic trim corrections
-TRIM_VX = 0.1  # Forward/backward trim correction
-TRIM_VY = -0.02  # Left/right trim correction
+TRIM_VX = 0.0  # Forward/backward trim correction
+TRIM_VY = 0.0  # Left/right trim correction
 
 # === DEAD RECKONING POSITION CONTROL PARAMETERS ===
 # PID Controller Parameters
@@ -479,12 +480,16 @@ class DeadReckoningGUI:
         control_frame.pack(fill=tk.X, padx=10, pady=5)
 
         # Flight control buttons
+        # macOS native buttons ignore bg, so white text would be invisible on the light button
+        on_mac = sys.platform == "darwin"
         self.start_button = tk.Button(control_frame, text="Start Flight",
-                                      command=self.start_flight, bg="green", fg="white", font=("Arial", 12))
+                                      command=self.start_flight, bg="green",
+                                      fg="darkgreen" if on_mac else "white", font=("Arial", 12))
         self.start_button.pack(side=tk.LEFT, padx=10)
 
         self.stop_button = tk.Button(control_frame, text="Emergency Stop",
-                                     command=self.emergency_stop, bg="red", fg="white", font=("Arial", 12))
+                                     command=self.emergency_stop, bg="red",
+                                     fg="red" if on_mac else "white", font=("Arial", 12))
         self.stop_button.pack(side=tk.LEFT, padx=10)
 
         # Flight status
@@ -1136,6 +1141,12 @@ class DeadReckoningGUI:
 
 def main():
     root = tk.Tk()
+    # Force light (Aqua) appearance on macOS even when the OS is in dark mode
+    try:
+        root.update_idletasks()  # window must exist before its appearance can be set
+        root.tk.call("::tk::unsupported::MacWindowStyle", "appearance", root, "aqua")
+    except tk.TclError:
+        pass  # Not macOS / older Tk
     app = DeadReckoningGUI(root)
 
     def on_closing():

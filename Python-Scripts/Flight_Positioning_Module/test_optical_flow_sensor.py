@@ -5,6 +5,7 @@ trajectory to both the console and a matplotlib-enabled Tk GUI.
 """
 
 import math
+import sys
 import threading
 import time
 from collections import deque
@@ -20,7 +21,7 @@ from cflib.crazyflie import Crazyflie
 from cflib.crazyflie.log import LogConfig
 from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
 
-DRONE_URI = "udp://192.168.43.42"
+DRONE_URI = "udp://192.168.1.134:2390"
 LOG_PERIOD_MS = 50 # 20 Hz logging interval
 DT = LOG_PERIOD_MS / 1000.0 # DT is the logging interval converted to seconds; used when integrating velocities to compute position displacement between samples.
 DEG_TO_RAD = math.pi / 180.0 # conversion factor from degrees to radians
@@ -129,8 +130,12 @@ class OpticalFlowApp:
 
         # Start/Stop buttons to open/close the radio connection and begin
         # logging from the flight stabilizer's flow sensor.
-        tk.Button(top_frame, text="Start", command=self.start, bg="#28a745", fg="white", width=12).pack(side=tk.LEFT, padx=5)
-        tk.Button(top_frame, text="Stop", command=self.stop, bg="#dc3545", fg="white", width=12).pack(side=tk.LEFT, padx=5)
+        # macOS native buttons ignore bg, so white text would be invisible on the light button
+        on_mac = sys.platform == "darwin"
+        tk.Button(top_frame, text="Start", command=self.start, bg="#28a745",
+                  fg="#28a745" if on_mac else "white", width=12).pack(side=tk.LEFT, padx=5)
+        tk.Button(top_frame, text="Stop", command=self.stop, bg="#dc3545",
+                  fg="#dc3545" if on_mac else "white", width=12).pack(side=tk.LEFT, padx=5)
 
         tk.Label(top_frame, textvariable=self.status_var, font=("Arial", 11, "bold"), fg="blue").pack(side=tk.LEFT, padx=20)
 
@@ -353,6 +358,12 @@ class OpticalFlowApp:
 
 def main() -> None:
     root = tk.Tk()
+    # Force light (Aqua) appearance on macOS even when the OS is in dark mode
+    try:
+        root.update_idletasks()  # window must exist before its appearance can be set
+        root.tk.call("::tk::unsupported::MacWindowStyle", "appearance", root, "aqua")
+    except tk.TclError:
+        pass  # Not macOS / older Tk
     app = OpticalFlowApp(root)
     root.mainloop()
 
