@@ -175,8 +175,8 @@ inside it. The PC side is in `python-demo-app/drone.py` (`run_app()`), driven by
 cockpit's S key.
 
 What the current app does on `START`: the pre-flight checks of `drone.py` (battery at least
-3.5 V, Kalman estimator running, a ToF reading within 1 s), plus no setpoint from the link
-for 500 ms. Then it resets the estimator, takes over with the high-level commander (below)
+3.5 V, Kalman estimator running, the VL53L1X found at boot (`zRanger2Test()`)), plus no
+setpoint from the link for 500 ms. Then it resets the estimator, takes over with the high-level commander (below)
 and takes off to 0.3 m. It then flies the `route[]` table in `app.c`, one
 `crtpCommanderHighLevelGoTo()` per point and a 1 s pause after each:
 - 30 cm to the right (y −0.3)

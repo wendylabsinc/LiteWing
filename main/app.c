@@ -27,7 +27,7 @@
 #include "estimator.h"
 #include "param.h"
 #include "pm_esplane.h"
-#include "range.h"
+#include "zranger2.h"
 #define DEBUG_MODULE "APP"
 #include "debug_cf.h"
 
@@ -37,7 +37,8 @@
 #define YAW_RATE_DEG_S      45.0f   // turn speed
 #define MIN_MANEUVER_S      1.0f    // shortest takeoff, move or landing
 #define MIN_BATTERY_V       3.5f
-#define TOF_CHECK_MS        1000    // a ToF reading must come within this
+#define LINK_SETTLE_MS      1000    // before the setpoint check: lets the PC's
+                                    // last setpoints arrive
 #define SETPOINTS_QUIET_MS  500     // no setpoint from the link for this long
 #define ESTIMATOR_SETTLE_MS 500     // after the estimator reset
 #define LANDING_MARGIN_MS   1000    // past the landing duration, stop anyway
@@ -66,7 +67,6 @@ static uint8_t error = APP_ERROR_NONE;
 static bool abortRequested;
 static bool flying;         // in the air under the high-level commander
 static bool overridden;     // ... and a setpoint from the link stopped it
-static bool tofSeen;
 
 static void sendStatus(uint8_t id, bool isRunning, uint8_t err)
 {
@@ -104,10 +104,9 @@ static bool handlePacket(const uint8_t *data, size_t length)
     }
 }
 
-/* Waits ms while serving the app channel, calling each() (if any) at every
- * poll. Returns false as soon as the run must end: an abort, or the
- * high-level commander stopped in flight. */
-static bool serviceFor(uint32_t ms, void (*each)(void))
+/* Waits ms while serving the app channel. Returns false as soon as the run
+ * must end: an abort, or the high-level commander stopped in flight. */
+static bool serviceFor(uint32_t ms)
 {
     uint8_t packet[APPCHANNEL_MTU];
     const TickType_t end = xTaskGetTickCount() + M2T(ms);
@@ -120,9 +119,6 @@ static bool serviceFor(uint32_t ms, void (*each)(void))
             overridden = true;
             return false;
         }
-        if (each) {
-            each();
-        }
         int32_t left = (int32_t)(end - xTaskGetTickCount());
         if (left <= 0) {
             return true;
@@ -132,13 +128,6 @@ static bool serviceFor(uint32_t ms, void (*each)(void))
         if (length > 0) {
             handlePacket(packet, length);
         }
-    }
-}
-
-static void sampleTof(void)
-{
-    if (rangeGet(rangeDown) > 0.0f) {
-        tofSeen = true;
     }
 }
 
@@ -167,15 +156,16 @@ static uint8_t check(void)
         DEBUG_PRINTW("Kalman estimator off (no optical flow), not flying\n");
         return APP_ERROR_NO_FLOW;
     }
-    tofSeen = false;
-    if (!serviceFor(TOF_CHECK_MS, sampleTof)) {
-        return endedBy();
-    }
-    if (!tofSeen) {
-        DEBUG_PRINTW("No ToF reading, not flying\n");
+    // True when the VL53L1X answered at boot, which also started the task
+    // measuring with it. Its readings can't tell: on the floor, below the
+    // sensor's minimum range, a working sensor can read 0.
+    if (!zRanger2Test()) {
+        DEBUG_PRINTW("No ToF sensor, not flying\n");
         return APP_ERROR_NO_TOF;
     }
-    // Also lets the last setpoints the PC sent before the start get through.
+    if (!serviceFor(LINK_SETTLE_MS)) {
+        return endedBy();
+    }
     if (T2M(commanderGetInactivityTime()) < SETPOINTS_QUIET_MS) {
         DEBUG_PRINTW("Setpoints still coming from the link, not flying\n");
         return APP_ERROR_SETPOINTS_ACTIVE;
@@ -209,7 +199,7 @@ static uint8_t fly(void)
     // Restart the position estimate here (x/y -> 0), as drone.py does before
     // each takeoff.
     paramSetInt(resetId, 1);
-    if (!serviceFor(ESTIMATOR_SETTLE_MS, NULL)) {
+    if (!serviceFor(ESTIMATOR_SETTLE_MS)) {
         return endedBy();
     }
 
@@ -226,7 +216,7 @@ static uint8_t fly(void)
         result = APP_ERROR_PLANNER;
     } else {
         flying = true;
-        bool ok = serviceFor(toMs(duration), NULL) && serviceFor(HOLD_MS, NULL);
+        bool ok = serviceFor(toMs(duration)) && serviceFor(HOLD_MS);
         for (size_t i = 0; ok && i < sizeof(route) / sizeof(route[0]); i++) {
             const waypoint_t *next = &route[i];
             duration = moveDuration(&at, next);
@@ -240,7 +230,7 @@ static uint8_t fly(void)
                 break;  // still lands, from where it is
             }
             at = *next;
-            ok = serviceFor(toMs(duration), NULL) && serviceFor(HOLD_MS, NULL);
+            ok = serviceFor(toMs(duration)) && serviceFor(HOLD_MS);
         }
         if (ok) {
             // The high-level commander stops by itself once landed.
@@ -254,7 +244,7 @@ static uint8_t fly(void)
                         + M2T(toMs(duration) + LANDING_MARGIN_MS);
                 while (!crtpCommanderHighLevelIsStopped()
                        && (int32_t)(end - xTaskGetTickCount()) > 0
-                       && serviceFor(POLL_MS, NULL)) {
+                       && serviceFor(POLL_MS)) {
                 }
             }
         }

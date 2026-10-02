@@ -31,7 +31,7 @@ typedef enum {
     APP_ERROR_NONE             = 0,
     APP_ERROR_BUSY             = 1, // START while a run is going on
     APP_ERROR_LOW_BATTERY      = 2,
-    APP_ERROR_NO_TOF           = 3, // no height reading from the VL53L1X
+    APP_ERROR_NO_TOF           = 3, // VL53L1X not found at boot
     APP_ERROR_NO_FLOW          = 4, // Kalman estimator off: optical flow failed
     APP_ERROR_SETPOINTS_ACTIVE = 5, // someone else streams setpoints
     APP_ERROR_PLANNER          = 6, // the high-level commander refused
