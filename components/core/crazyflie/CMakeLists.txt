@@ -80,3 +80,8 @@ target_compile_options(${COMPONENT_LIB} PRIVATE "-fno-strict-aliasing"
                                                 "-Wno-address-of-packed-member"
                                                 "-Wno-stringop-truncation"
                                                 "-Wno-format")
+# The onboard app (main/app.c): system.c starts its task, app_handler.c sizes
+# it. The stack size is in bytes on ESP-IDF.
+target_compile_definitions(${COMPONENT_LIB} PRIVATE APP_ENABLED
+                                                    APP_STACKSIZE=4096
+                                                    APP_PRIORITY=1)

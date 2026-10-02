@@ -156,18 +156,50 @@ Connect: put your computer on the same network, then speak CRTP to `udp://<drone
 
 ## APIs for giving position setpoints from *within* the firmware
 
-### Prerequisite: the onboard "app" hook is currently dead
+### The onboard app: `main/app.c`
 
-`appMain()` ([`app.h:42`](../components/core/crazyflie/modules/interface/app.h#L42)) is
-only invoked if `appInit()` runs, and
-[`system.c:146`](../components/core/crazyflie/modules/src/system.c#L146) only calls
-`appInit()` inside `#ifdef APP_ENABLED`. Nothing in this repo defines `APP_ENABLED` — no
-Kconfig option, no CMake define. So today `appMain()` has no implementation and never runs.
-To add onboard control code, either:
-- define `APP_ENABLED` (e.g. in the top-level `CMakeLists.txt`) and implement
-  `void appMain(void)` in a new source file, or
-- wire your own task some other way (e.g. add a `STATIC_MEM_TASK_CREATE` call near
-  [`system.c:147`](../components/core/crazyflie/modules/src/system.c#L147)).
+The Crazyflie app hook is enabled:
+[`components/core/crazyflie/CMakeLists.txt`](../components/core/crazyflie/CMakeLists.txt)
+defines `APP_ENABLED` (so
+[`system.c:146`](../components/core/crazyflie/modules/src/system.c#L146) calls `appInit()`),
+`APP_STACKSIZE=4096` (bytes on ESP-IDF; the 300 default in `app_handler.c` is far too
+small) and `APP_PRIORITY=1`. `appInit()` starts a task that calls `appMain()`, implemented in
+[`main/app.c`](../main/app.c), once the system has started.
+
+The app talks to the PC over the CRTP app channel (port `0x0D`, channel 2:
+`appchannelReceivePacket()` / `appchannelSendPacket()`, at most 31 bytes per packet). The
+protocol, in [`main/app.h`](../main/app.h), is generic: the PC sends `START` (with a run id),
+`ABORT` or `PING`, and the app answers with a status of three bytes: run id, running (0/1),
+and an error type, which is 0 when a run completed. What the app does during a run stays
+inside it. The PC side is in `python-demo-app/drone.py` (`run_app()`), driven by the
+cockpit's S key.
+
+What the current app does on `START`: the pre-flight checks of `drone.py` (battery at least
+3.5 V, Kalman estimator running, a ToF reading within 1 s), plus no setpoint from the link
+for 500 ms. Then it resets the estimator, takes over with the high-level commander (below)
+and takes off to 0.3 m. It then flies the `route[]` table in `app.c`, one
+`crtpCommanderHighLevelGoTo()` per point and a 1 s pause after each:
+- 30 cm to the right (y −0.3)
+- up to 0.5 m
+- back over the takeoff spot
+- a quarter turn left
+- down to 0.3 m
+- back to the takeoff heading
+
+Then it lands. The route's frame is the one the estimator reset sets up: x/y 0 at the
+takeoff spot, +X the USB side, +Y the left, yaw 0 the takeoff heading (`initialYaw` in
+`kalman_core.c`).
+
+Handover rules, which any app flying on its own must follow:
+- The PC must stop streaming setpoints while the app flies. Every setpoint the commander
+  accepts calls `crtpCommanderHighLevelStop()`
+  ([`commander.c:86`](../components/core/crazyflie/modules/src/commander.c#L86)), which
+  cuts the motors. That is also how the cockpit's Esc stops the app: one stop setpoint.
+- The link still needs traffic: telemetry stops 1 s after the drone last received a
+  packet (`WIFI_ACTIVITY_TIMEOUT_MS` in `wifilink.c`). The cockpit sends `PING` on the app
+  channel at 20 Hz instead of setpoints, and the app answers each one.
+- The app waits in `appchannelReceivePacket()` with short timeouts throughout, so the
+  10-packet queue never fills with pings and an `ABORT` is never dropped.
 
 ### Recommended: the high-level commander
 
@@ -185,8 +217,10 @@ This generates a smooth time-parameterized trajectory internally (`planner.c`); 
 per maneuver, not once per tick. Catch: it only takes effect once the low-level setpoint
 queue in `commander.c` is stale, and only if the `enableHighLevel` flag
 (param `enHighLevel`, [`commander.c:48,157`](../components/core/crazyflie/modules/src/commander.c#L48))
-is `true`. It defaults to `false` — with no ground-station client to flip it, change its
-default in `commander.c` or add your own setter.
+is `true`. It defaults to `false`; `main/app.c` sets it for its flight with
+`paramSetInt(paramGetVarId("commander", "enHighLevel"), 1)`, restores it afterwards,
+and calls `commanderNotifySetpointsStop(0)` to make the low-level setpoint stale at once
+instead of waiting the 2 s.
 
 ### Lower-level alternative: stream raw setpoints yourself
 
